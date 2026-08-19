@@ -1,79 +1,88 @@
-import math
-import os
+#!/usr/bin/env python3
+"""Reproduce the illustrative Section 3 effective-fluid benchmark and Figures 2-3."""
+from pathlib import Path
 import numpy as np
+from scipy.optimize import brentq
 import matplotlib.pyplot as plt
+from PIL import Image
 
-BASE = os.path.dirname(os.path.dirname(__file__))
-FIGDIR = os.path.join(BASE, "figures")
-os.makedirs(FIGDIR, exist_ok=True)
-
-
-def N_acc(x, xF=0.7):
-    return np.pi * x**4 / (x**2 + xF**2)
-
-
-def dlnN_dlnx(x, xF=0.7):
-    return 4.0 - 2.0 * x**2 / (x**2 + xF**2)
+NU = 0.2
+A_F = 0.7
+N_C = 3.0
+OUT = Path(__file__).resolve().parent / 'figures'
+OUT.mkdir(exist_ok=True)
 
 
-def w_minimal(x, nu=0.2, xF=0.7):
-    N = N_acc(x, xF)
-    return -1.0 + (1.0 / 3.0) * (N / (N + nu)) * dlnN_dlnx(x, xF)
+def save_rgb_png(fig, path):
+    """Save a 600-dpi publication PNG and normalize it to 8-bit RGB."""
+    path = Path(path)
+    fig.savefig(path, dpi=600, bbox_inches='tight', facecolor='white', transparent=False)
+    with Image.open(path) as im:
+        im.convert('RGB').save(path, dpi=(600, 600), optimize=True)
 
 
-def w_exit(x, nu=0.2, xF=0.7, Nc=3.0):
-    N = N_acc(x, xF)
-    bracket = (N / (N + nu)) + (N / (N + Nc))
-    return -1.0 + (1.0 / 3.0) * dlnN_dlnx(x, xF) * bracket
+def n_acc(abar):
+    abar = np.asarray(abar, dtype=float)
+    return np.pi * abar**4 / (abar**2 + A_F**2)
 
 
-def epsilon_H(w):
-    return 1.5 * (1.0 + w)
+def dln_nacc_dln_abar(abar):
+    abar = np.asarray(abar, dtype=float)
+    return 4.0 - 2.0 * abar**2 / (abar**2 + A_F**2)
 
 
-def find_x_end(nu=0.2, xF=0.7, Nc=3.0):
-    grid = np.logspace(-3, 1, 20000)
-    vals = np.array([w_exit(x, nu, xF, Nc) + 1.0 / 3.0 for x in grid])
-    idx = np.where(np.diff(np.sign(vals)))[0][0]
-    x1, x2 = grid[idx], grid[idx + 1]
-    y1, y2 = vals[idx], vals[idx + 1]
-    return x1 - y1 * (x2 - x1) / (y2 - y1)
+def w_min(abar):
+    n = n_acc(abar)
+    return -1.0 + (dln_nacc_dln_abar(abar)/3.0) * n/(n+NU)
 
 
-if __name__ == "__main__":
-    xs = np.logspace(-3, 1, 3000)
-    w1 = np.array([w_minimal(x) for x in xs])
-    w2 = np.array([w_exit(x) for x in xs])
-    e2 = epsilon_H(w2)
-    x_end = find_x_end()
+def w_exit(abar):
+    n = n_acc(abar)
+    return -1.0 + (dln_nacc_dln_abar(abar)/3.0) * (
+        n/(n+NU) + n/(n+N_C)
+    )
 
-    plt.figure(figsize=(8.5, 5.2))
-    plt.semilogx(xs, w1, label='Minimal closure')
-    plt.semilogx(xs, w2, label='Exit closure')
-    plt.axhline(-1.0/3.0, linestyle='--', label='Acceleration threshold')
-    plt.axvline(x_end, linestyle=':', label=f'x_end ≈ {x_end:.3f}')
-    plt.xlabel('x')
-    plt.ylabel('w(x)')
-    plt.title('HBMB background equation of state')
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig(os.path.join(FIGDIR, 'minimal_background_w.png'), dpi=200)
-    plt.close()
 
-    plt.figure(figsize=(8.5, 5.2))
-    plt.semilogx(xs, e2)
-    plt.axhline(1.0, linestyle='--', label='End of inflation')
-    plt.axvline(x_end, linestyle=':', label=f'x_end ≈ {x_end:.3f}')
-    plt.xlabel('x')
-    plt.ylabel('epsilon_H(x)')
-    plt.title('HBMB background slow-roll parameter')
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig(os.path.join(FIGDIR, 'minimal_background_epsilon.png'), dpi=200)
-    plt.close()
+def eps1_exit(abar):
+    return 1.5 * (1.0 + w_exit(abar))
 
-    print(f"x_end ≈ {x_end:.6f}")
-    for x in [0.05, 0.1, 0.2, 0.3, 0.4, x_end, 1.0]:
-        w = w_exit(x)
-        e = epsilon_H(w)
-        print(f"x={x:.6f}  w={w:.8f}  epsilon_H={e:.8f}")
+
+def main():
+    a_end = brentq(lambda z: float(eps1_exit(z) - 1.0), 0.3, 0.7)
+    print(f'a_bar_end = {a_end:.12f}')
+    print('a_bar       w_exit          epsilon_1')
+    for a in [0.05,0.10,0.20,0.30,0.40,a_end,1.0]:
+        print(f'{a:10.6f}  {float(w_exit(a)): .10f}  {float(eps1_exit(a)): .10f}')
+
+    aa = np.logspace(-3, 1, 1200)
+
+    fig, ax = plt.subplots(figsize=(5.6, 4.25), dpi=600)
+    ax.plot(aa, w_min(aa), label='Minimal effective-fluid closure')
+    ax.plot(aa, w_exit(aa), label='Capacity-suppressed exit closure')
+    ax.axhline(-1/3, linestyle='--', label='Acceleration threshold')
+    ax.axvline(a_end, linestyle=':', label=rf'$\bar a_{{\rm end}}\simeq {a_end:.3f}$')
+    ax.set_xscale('log')
+    ax.set_xlabel(r'$\bar a=a/a_0$', fontsize=13)
+    ax.set_ylabel(r'$w(\bar a)$', fontsize=13)
+    ax.tick_params(labelsize=12)
+    ax.legend(fontsize=10.5, loc='lower center', bbox_to_anchor=(0.5, 1.02), ncol=2, frameon=True)
+    fig.subplots_adjust(top=0.78, left=0.14, right=0.98, bottom=0.15)
+    save_rgb_png(fig, OUT/'minimal_background_w.png')
+    plt.close(fig)
+
+    fig, ax = plt.subplots(figsize=(5.6, 4.15), dpi=600)
+    ax.plot(aa, eps1_exit(aa), label=r'$\epsilon_1(\bar a)$')
+    ax.axhline(1.0, linestyle='--', label=r'End of acceleration: $\epsilon_1=1$')
+    ax.axvline(a_end, linestyle=':', label=rf'$\bar a_{{\rm end}}\simeq {a_end:.3f}$')
+    ax.set_xscale('log')
+    ax.set_xlabel(r'$\bar a=a/a_0$', fontsize=13)
+    ax.set_ylabel(r'$\epsilon_1(\bar a)$', fontsize=13)
+    ax.tick_params(labelsize=12)
+    ax.legend(fontsize=10.5, loc='lower center', bbox_to_anchor=(0.5, 1.02), ncol=2, frameon=True)
+    fig.subplots_adjust(top=0.78, left=0.14, right=0.98, bottom=0.15)
+    save_rgb_png(fig, OUT/'minimal_background_epsilon.png')
+    plt.close(fig)
+
+
+if __name__ == '__main__':
+    main()

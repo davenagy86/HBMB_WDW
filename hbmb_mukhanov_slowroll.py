@@ -1,56 +1,60 @@
+#!/usr/bin/env python3
+"""Leading slow-roll scalar/tensor benchmark for the HBMB manuscript."""
+from __future__ import annotations
 
 import math
-import os
-import numpy as np
-import matplotlib.pyplot as plt
 
-BASE = os.path.dirname(os.path.dirname(__file__))
-FIGDIR = os.path.join(BASE, "figures")
-os.makedirs(FIGDIR, exist_ok=True)
-
-A_s = 2.1e-9
-k_pivot = 0.05
-ALPHA = 0.75
-DELTA = 0.8188863387
+ALPHA_EFF = 0.75
+DELTA_G = 0.8366497586
 NSTAR = 55.0
+AS = 2.1e-9
 
-def epsilon1(Nrem, alpha=ALPHA, Delta=DELTA):
-    return alpha / (Nrem + Delta) ** 2
 
-def epsilon2(Nrem, alpha=ALPHA, Delta=DELTA):
-    return 2.0 / (Nrem + Delta)
+def hubble_flow(N: float):
+    u = N + DELTA_G
+    eps1 = ALPHA_EFF/u**2
+    eps2 = 2.0/u
+    eps3 = 1.0/u
+    return eps1, eps2, eps3
 
-def spectra(Nstar=NSTAR, alpha=ALPHA, Delta=DELTA, A_s=A_s, k_pivot=k_pivot):
-    eps1 = epsilon1(Nstar, alpha, Delta)
-    eps2 = epsilon2(Nstar, alpha, Delta)
-    ns = 1.0 - 2.0 * eps1 - eps2
-    nt = -2.0 * eps1
-    r = 16.0 * eps1
-    eps3 = 1.0 / (Nstar + Delta)
-    alpha_s = -2.0 * eps1 * eps2 - eps2 * eps3
-    ks = np.logspace(-4, 1, 800)
-    lnkk = np.log(ks / k_pivot)
-    Ps = A_s * np.exp((ns - 1.0) * lnkk + 0.5 * alpha_s * lnkk**2)
-    Pt = r * A_s * np.exp(nt * lnkk)
-    return ks, Ps, Pt, ns, r, nt, alpha_s
 
-if __name__ == "__main__":
-    ks, Ps, Pt, ns, r, nt, alpha_s = spectra()
-    print(f"alpha = {ALPHA:.10f}")
-    print(f"Delta = {DELTA:.10f}")
-    print(f"n_s = {ns:.9f}")
-    print(f"r   = {r:.9f}")
-    print(f"n_t = {nt:.9f}")
-    print(f"alpha_s = {alpha_s:.9f}")
+def observables(N: float = NSTAR):
+    eps1, eps2, eps3 = hubble_flow(N)
+    ns = 1.0 - 2.0*eps1 - eps2
+    r = 16.0*eps1
+    nt = -2.0*eps1
+    alpha_s = -2.0*eps1*eps2 - eps2*eps3
+    H_over_MP = math.sqrt(8.0*math.pi**2*AS*eps1)
+    return eps1, eps2, eps3, ns, r, nt, alpha_s, H_over_MP
 
-    plt.figure(figsize=(8.5, 5.2))
-    plt.loglog(ks, Ps, label=r'$\mathcal{P}_{\mathcal{R}}(k)$')
-    plt.loglog(ks, Pt, label=r'$\mathcal{P}_{T}(k)$')
-    plt.axvline(0.05, linestyle='--', label='pivot')
-    plt.xlabel(r'$k\,[\mathrm{Mpc}^{-1}]$')
-    plt.ylabel('dimensionless power')
-    plt.title('HBMB primordial spectra for the matched plateau benchmark')
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig(os.path.join(FIGDIR, 'primordial_spectra.png'), dpi=200)
-    plt.close()
+
+def main() -> None:
+    eps1, eps2, eps3, ns, r, nt, alpha_s, H = observables()
+    print('HBMB conditional minimal slow-roll benchmark')
+    print('='*72)
+    print(f'N_*             = {NSTAR:.1f}')
+    print(f'Delta_G         = {DELTA_G:.12f}')
+    print(f'alpha_eff       = {ALPHA_EFF:.12f}')
+    print(f'epsilon_1*      = {eps1:.12e}')
+    print(f'epsilon_2*      = {eps2:.12e}')
+    print(f'epsilon_3*      = {eps3:.12e}')
+    print(f'n_s             = {ns:.12f}')
+    print(f'r               = {r:.12e}')
+    print(f'n_t             = {nt:.12e}')
+    print(f'alpha_s         = {alpha_s:.12e}')
+    print(f'H_*/M_P         = {H:.12e}')
+
+    targets = {
+        'ns': (ns, 0.963700113013),
+        'r': (r, 3.848952409255e-3),
+        'nt': (nt, -4.811190511569e-4),
+        'alpha_s': (alpha_s, -6.587251598519e-4),
+    }
+    for name, (value, target) in targets.items():
+        if not math.isclose(value, target, rel_tol=3e-12, abs_tol=3e-12):
+            raise RuntimeError(f'{name} reproducibility check failed: {value} != {target}')
+    print('\nChecks passed.')
+
+
+if __name__ == '__main__':
+    main()
